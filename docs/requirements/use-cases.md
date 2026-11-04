@@ -1477,7 +1477,7 @@ Details:
   - 1a1. The system denies the request and changes nothing; the use case ends.
 - **4a. The course admin or instructor cancels at the warning:**
   - 4a1. The system changes nothing, the student stays active, and the use case ends.
-- **6a. The student is already deactivated (for example, another course admin or instructor deactivated her first):**
+- **6a. The student is already deactivated:**
   - 6a1. The system informs the course admin or instructor that this student is already deactivated and changes nothing; the use case ends.
 
 **Priority:** Low
@@ -1526,7 +1526,7 @@ Details:
 **Associated Information:**
 - The course admin or instructor shall be able to cancel the use case at any time prior to submitting it.
 - Team membership: Reactivation does not restore the team she was removed from at deactivation (BR-deactivation-team-removal). Until a course admin assigns her to a team (UC-TEA-assign-students: Assign students to teams) she owes no weekly activity report or peer evaluation (BR-team-assignment-required, BR-submission-owed).
-- Temporary reactivation path: until this use case is built, an instructor reactivates a student by setting her status from Inactive to Active in the student edit form, as designed in `design/stu.md`. That path is removed when this use case is built.
+- Temporary reactivation path: until this use case is built, an instructor reactivates a student by setting her status from Inactive to Active in the student edit form. That path is removed when this use case is built.
 
 **Related Use Cases:** UC-STU-delete-student: Delete a student; UC-STU-deactivate-student: Deactivate a student
 **Assumptions:**
