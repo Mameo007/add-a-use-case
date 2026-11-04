@@ -1473,12 +1473,20 @@ Details:
 7. Use case ends.
 
 **Extensions:**
+- **1a. The user is neither a course admin nor an instructor permitted by BR-student-lifecycle to deactivate this student:**
+  - 1a1. The system denies the request and changes nothing; the use case ends.
+- **4a. The course admin or instructor cancels at the warning:**
+  - 4a1. The system changes nothing, the student stays active, and the use case ends.
+- **6a. The student is already deactivated (for example, another course admin or instructor deactivated her first):**
+  - 6a1. The system informs the course admin or instructor that this student is already deactivated and changes nothing; the use case ends.
+
 **Priority:** Low
 **Frequency of Use:** Rare. Occurs occasionally when a student withdraws from a course section.
 **Business Rules:** BR-student-lifecycle
 
 **Associated Information:**
 - Consequence of the deactivation: The student will no longer be able to log in or submit weekly activity reports and peer evaluations, but the student's account and her previously submitted work are kept in the system. Deactivation will NOT remove the student from the system, and the account can be reactivated in the future (UC-STU-reactivate-student: Reactivate a student). This is distinct from deletion (UC-STU-delete-student: Delete a student), which is a physical, unrecoverable delete. The course admin or instructor shall be able to cancel the use case at any time prior to submitting it.
+- Student logged in at the time of deactivation: her access ends with her next request, not when her session expires (FR-SEC-active-account).
 
 **Related Use Cases:** UC-STU-delete-student: Delete a student; UC-STU-reactivate-student: Reactivate a student
 **Assumptions:**
