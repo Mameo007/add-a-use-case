@@ -253,6 +253,42 @@ class StudentIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void testInstructorEditWithEnabledFalseDoesNotDeactivateStudent() throws Exception {
+        // The generic edit no longer deactivates anyone; deactivation is UC-STU-deactivate-student's own flow
+        Map<String, Object> studentDto = new HashMap<>();
+        studentDto.put("username", "j.smith@abc.edu");
+        studentDto.put("firstName", "John");
+        studentDto.put("lastName", "Smith");
+        studentDto.put("email", "j.smith@abc.edu");
+        studentDto.put("enabled", false);
+
+        this.mockMvc.perform(put(this.baseUrl + "/students/4").contentType(MediaType.APPLICATION_JSON).content(this.jsonMapper.writeValueAsString(studentDto)).accept(MediaType.APPLICATION_JSON).header(HttpHeaders.AUTHORIZATION, this.instructorBillToken))
+                .andExpect(jsonPath("$.flag").value(true))
+                .andExpect(jsonPath("$.code").value(StatusCode.SUCCESS))
+                .andExpect(jsonPath("$.data.enabled").value(true))
+                .andExpect(jsonPath("$.data.teamName").value("Team1"));
+    }
+
+    @Test
+    void testInstructorEditWithEnabledMissingLeavesStatusUnchanged() throws Exception {
+        // StudentDto.enabled is a primitive boolean, and Jackson 3 refuses a missing primitive creator property
+        // (FAIL_ON_NULL_FOR_PRIMITIVES), so the edit is rejected as malformed and nothing changes
+        Map<String, Object> studentDto = new HashMap<>();
+        studentDto.put("username", "j.smith@abc.edu");
+        studentDto.put("firstName", "John (updated)");
+        studentDto.put("lastName", "Smith");
+        studentDto.put("email", "j.smith@abc.edu");
+
+        this.mockMvc.perform(put(this.baseUrl + "/students/4").contentType(MediaType.APPLICATION_JSON).content(this.jsonMapper.writeValueAsString(studentDto)).accept(MediaType.APPLICATION_JSON).header(HttpHeaders.AUTHORIZATION, this.instructorBillToken))
+                .andExpect(jsonPath("$.flag").value(false))
+                .andExpect(jsonPath("$.code").value(StatusCode.INVALID_ARGUMENT));
+
+        this.mockMvc.perform(get(this.baseUrl + "/students/4").accept(MediaType.APPLICATION_JSON).header(HttpHeaders.AUTHORIZATION, this.instructorBillToken))
+                .andExpect(jsonPath("$.data.firstName").value("John"))
+                .andExpect(jsonPath("$.data.enabled").value(true));
+    }
+
+    @Test
     void testStudentJohnUpdatesAnotherStudentsInfo() throws Exception {
         Map<String, String> studentDto = new HashMap<>();
         studentDto.put("username", "eric");
