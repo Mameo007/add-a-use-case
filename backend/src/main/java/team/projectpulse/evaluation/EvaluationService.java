@@ -59,6 +59,10 @@ public class EvaluationService {
             throw new PeerEvaluationIllegalArgumentException("You must be assigned to a team before submitting a peer evaluation.");
         }
 
+        // A deactivated teammate is no longer evaluated (BR-deactivated-student-evaluations). Checked before the
+        // same-team check, whose message would mislead, and which a legacy deactivated row still on a team would pass.
+        requireActiveEvaluatee(newPeerEvaluation.getEvaluatee());
+
         // Make sure the evaluator and evaluatee are on the same team. Compare team ids: Team does not override
         // equals, so comparing the entities is identity comparison and only happens to hold within one session.
         Integer evaluatorTeamId = evaluatorTeam.getTeamId();
@@ -81,12 +85,23 @@ public class EvaluationService {
                     // The week is read off the stored evaluation rather than off the update, because the caller
                     // writes the payload and could otherwise name an open week to reopen a closed evaluation.
                     requireOpenSubmissionWindow(oldEvaluation.getEvaluator().getSection(), oldEvaluation.getWeek(), WINDOW_CLOSED_MESSAGE);
+                    requireActiveEvaluatee(oldEvaluation.getEvaluatee());
                     rescore(oldEvaluation, update.getRatings());
                     oldEvaluation.setPublicComment(update.getPublicComment());
                     oldEvaluation.setPrivateComment(update.getPrivateComment());
                     return this.evaluationRepository.save(oldEvaluation);
                 })
                 .orElseThrow(() -> new ObjectNotFoundException("evaluation", evaluationId));
+    }
+
+    /**
+     * Refuses a submission, or a re-submission, of a peer evaluation of a deactivated student
+     * (BR-deactivated-student-evaluations).
+     */
+    private static void requireActiveEvaluatee(Student evaluatee) {
+        if (!evaluatee.isEnabled()) {
+            throw new PeerEvaluationIllegalArgumentException(evaluatee.getFirstName() + " " + evaluatee.getLastName() + " has been deactivated and can no longer be evaluated.");
+        }
     }
 
     /**
@@ -220,8 +235,16 @@ public class EvaluationService {
 
         report.setSectionName(this.sectionRepository.findById(sectionId).orElseThrow(() -> new ObjectNotFoundException("section", sectionId)).getSectionName());
 
-        // Get all students in the section
-        List<Student> students = this.studentRepository.findBySectionSectionId(sectionId).stream().filter(student -> student.getTeam() != null).collect(Collectors.toList());
+        // The students this week's report covers (BR-deactivated-student-evaluations): every active student on a team,
+        // plus any student of the course section who received a peer evaluation for this week. The second set keeps a
+        // deactivated student, who has been removed from her team, in the weeks she was evaluated, so her retained
+        // work stays visible; her own self-evaluation counts. She is absent from the weeks she was not.
+        Set<Integer> evaluatedStudentIds = this.evaluationRepository.findEvaluatorAndEvaluateeIds(sectionId, week).stream()
+                .map(pair -> (Integer) pair[1])
+                .collect(Collectors.toSet());
+        List<Student> students = this.studentRepository.findBySectionSectionId(sectionId).stream()
+                .filter(student -> (student.getTeam() != null && student.isEnabled()) || evaluatedStudentIds.contains(student.getId()))
+                .collect(Collectors.toList());
 
         // For each student, compute her average total score, collect all public comments and private comments, and compute rating averages for each criterion.
         students.forEach(student -> {

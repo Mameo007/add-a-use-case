@@ -9,8 +9,6 @@ import jakarta.transaction.Transactional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -108,21 +106,41 @@ public class StudentService {
         Student oldStudent = this.studentRepository.findById(studentId)
                 .orElseThrow(() -> new ObjectNotFoundException("student", studentId));
 
-        // If the user is not an admin, then the user can only update her username, first rubricName, last rubricName, and email
         oldStudent.setUsername(update.getUsername());
         oldStudent.setFirstName(update.getFirstName());
         oldStudent.setLastName(update.getLastName());
         oldStudent.setEmail(update.getEmail());
 
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-
-        // If the user is an admin, then the user can update all the fields
-        if (authentication.getAuthorities().stream().anyMatch(grantedAuthority -> grantedAuthority.getAuthority().equals("ROLE_instructor"))) {
-            oldStudent.setEnabled(update.isEnabled());
-//            oldStudent.setRoles(update.getRoles());
+        // Temporary reactivation path, until UC-STU-reactivate-student is built (design/stu.md): the generic edit only
+        // ever turns an account on. Deactivation has its own flow (deactivateStudent), so enabled=false is ignored here.
+        // (A body that omits enabled never gets this far: Jackson refuses the missing primitive as malformed.)
+        // Re-enabling never restores the team she was removed from.
+        if (update.isEnabled() && this.userUtils.hasRole("ROLE_instructor")) {
+            oldStudent.setEnabled(true);
         }
 
         return this.studentRepository.save(oldStudent);
+    }
+
+    /**
+     * Deactivates a student (UC-STU-deactivate-student): she loses access to the system, her account and submitted
+     * work are kept, and she is removed from her team (BR-deactivation-team-removal). Deactivating a student who is
+     * already deactivated changes nothing (extension 6a).
+     */
+    public DeactivationResult deactivateStudent(Integer studentId) {
+        Student student = this.studentRepository.findById(studentId)
+                .orElseThrow(() -> new ObjectNotFoundException("student", studentId));
+
+        if (!student.isEnabled()) {
+            return new DeactivationResult(student, true);
+        }
+
+        if (student.getTeam() != null) {
+            student.getTeam().removeStudent(student);
+        }
+        student.setEnabled(false);
+
+        return new DeactivationResult(this.studentRepository.save(student), false);
     }
 
     public void deleteStudent(Integer studentId) {

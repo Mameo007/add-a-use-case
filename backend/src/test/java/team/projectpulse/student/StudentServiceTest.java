@@ -1,11 +1,10 @@
 package team.projectpulse.student;
 
 import org.junit.jupiter.api.AfterEach;
-import team.projectpulse.instructor.Instructor;
 import team.projectpulse.section.Section;
 import team.projectpulse.section.SectionRepository;
 import team.projectpulse.system.UserUtils;
-import team.projectpulse.user.MyUserPrincipal;
+import team.projectpulse.team.Team;
 import team.projectpulse.user.userinvitation.UserInvitationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,8 +17,6 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -130,14 +127,6 @@ class StudentServiceTest {
         given(this.studentRepository.findById(1)).willReturn(Optional.of(this.students.get(0)));
         given(this.studentRepository.save(any(Student.class))).willReturn(this.students.get(0));
 
-        Instructor instructor = new Instructor();
-        instructor.setRoles("student");
-        MyUserPrincipal myUserPrincipal = new MyUserPrincipal(instructor);
-
-        SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
-        securityContext.setAuthentication(new UsernamePasswordAuthenticationToken(myUserPrincipal, null, myUserPrincipal.getAuthorities()));
-        SecurityContextHolder.setContext(securityContext);
-
         // When
         Student result = this.studentService.updateStudent(1, update);
 
@@ -151,19 +140,11 @@ class StudentServiceTest {
     }
 
     @Test
-    void testInstructorUpdatesStudent() {
-        // Given
+    void testInstructorUpdatesStudentWithEnabledFalseDoesNotDeactivateHer() {
+        // Given: the generic edit no longer deactivates anyone; deactivation has its own flow (UC-STU-deactivate-student)
         Student update = new Student("john", "John (updated)", "Smith (updated)", "j.smith@abc.edu (updated)", "", false, "admin student");
         given(this.studentRepository.findById(1)).willReturn(Optional.of(this.students.get(0)));
         given(this.studentRepository.save(any(Student.class))).willReturn(this.students.get(0));
-
-        Instructor instructor = new Instructor();
-        instructor.setRoles("instructor");
-        MyUserPrincipal myUserPrincipal = new MyUserPrincipal(instructor);
-
-        SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
-        securityContext.setAuthentication(new UsernamePasswordAuthenticationToken(myUserPrincipal, null, myUserPrincipal.getAuthorities()));
-        SecurityContextHolder.setContext(securityContext);
 
         // When
         Student result = this.studentService.updateStudent(1, update);
@@ -173,8 +154,96 @@ class StudentServiceTest {
         assertThat(result.getFirstName()).isEqualTo(update.getFirstName());
         assertThat(result.getLastName()).isEqualTo(update.getLastName());
         assertThat(result.getEmail()).isEqualTo(update.getEmail());
-//        assertThat(result.getRoles()).isEqualTo(update.getRoles());
-        assertThat(result.isEnabled()).isEqualTo(update.isEnabled());
+        assertThat(result.isEnabled()).isTrue();
+    }
+
+    @Test
+    void testInstructorReactivatesDeactivatedStudentThroughTheTemporaryPath() {
+        // Given: John was deactivated, and so removed from his team
+        Student john = this.students.get(0);
+        john.setEnabled(false);
+        Student update = new Student("john", "John", "Smith", "j.smith@abc.edu", "", true, "student");
+        given(this.studentRepository.findById(1)).willReturn(Optional.of(john));
+        given(this.studentRepository.save(any(Student.class))).willReturn(john);
+        given(this.userUtils.hasRole("ROLE_instructor")).willReturn(true);
+
+        // When
+        Student result = this.studentService.updateStudent(1, update);
+
+        // Then: he is active again, and his team is not restored
+        assertThat(result.isEnabled()).isTrue();
+        assertThat(result.getTeam()).isNull();
+    }
+
+    @Test
+    void testStudentCannotReactivateHerself() {
+        // Given
+        Student john = this.students.get(0);
+        john.setEnabled(false);
+        Student update = new Student("john", "John", "Smith", "j.smith@abc.edu", "", true, "student");
+        given(this.studentRepository.findById(1)).willReturn(Optional.of(john));
+        given(this.studentRepository.save(any(Student.class))).willReturn(john);
+        given(this.userUtils.hasRole("ROLE_instructor")).willReturn(false);
+
+        // When
+        Student result = this.studentService.updateStudent(1, update);
+
+        // Then
+        assertThat(result.isEnabled()).isFalse();
+    }
+
+    @Test
+    void testDeactivateStudentRemovesHerFromHerTeam() {
+        // Given: John is active and on Team1 with Eric
+        Student john = this.students.get(0);
+        Student eric = this.students.get(1);
+        Team team1 = new Team("Team1", "Team 1 description", "https://www.team1.com");
+        team1.addStudent(john);
+        team1.addStudent(eric);
+        given(this.studentRepository.findById(1)).willReturn(Optional.of(john));
+        given(this.studentRepository.save(john)).willReturn(john);
+
+        // When
+        DeactivationResult result = this.studentService.deactivateStudent(1);
+
+        // Then
+        assertThat(result.alreadyDeactivated()).isFalse();
+        assertThat(result.student().isEnabled()).isFalse();
+        assertThat(result.student().getTeam()).isNull();
+        assertThat(team1.getStudents()).containsExactly(eric);
+        verify(this.studentRepository, times(1)).save(john);
+    }
+
+    @Test
+    void testDeactivateStudentNotOnATeam() {
+        // Given
+        Student john = this.students.get(0);
+        given(this.studentRepository.findById(1)).willReturn(Optional.of(john));
+        given(this.studentRepository.save(john)).willReturn(john);
+
+        // When
+        DeactivationResult result = this.studentService.deactivateStudent(1);
+
+        // Then
+        assertThat(result.alreadyDeactivated()).isFalse();
+        assertThat(result.student().isEnabled()).isFalse();
+        verify(this.studentRepository, times(1)).save(john);
+    }
+
+    @Test
+    void testDeactivateStudentAlreadyDeactivated() {
+        // Given (6a)
+        Student john = this.students.get(0);
+        john.setEnabled(false);
+        given(this.studentRepository.findById(1)).willReturn(Optional.of(john));
+
+        // When
+        DeactivationResult result = this.studentService.deactivateStudent(1);
+
+        // Then
+        assertThat(result.alreadyDeactivated()).isTrue();
+        assertThat(result.student().isEnabled()).isFalse();
+        verify(this.studentRepository, never()).save(any(Student.class));
     }
 
     @Test
